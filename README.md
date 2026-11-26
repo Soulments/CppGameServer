@@ -43,6 +43,7 @@ C++ 서버 권위(server-authoritative) 구조의 게임 서버와 Unity 클라�
 server/          C++ 서버 (CMake)
 proto/           패킷 정의(.proto) 원본
 client-unity/    Unity 샌드박스 클라이언트
+samples/         학습용 독립 샘플 (iocp-echo: Windows IOCP 에코 서버)
 docs/            패킷 정의서, 아키텍처, 트러블슈팅 로그
 tools/           지연·패킷 손실 시뮬레이션 등 보조 도구
 ```
