@@ -1,0 +1,3 @@
+# 생성된 코드와 바이너리는 GitHub 언어 통계와 diff 에서 구분한다.
+client-unity/Assets/Scripts/Generated/* linguist-generated=true
+*.dll binary

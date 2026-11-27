@@ -6,6 +6,7 @@
 
 #include <asio.hpp>
 
+#include "game/GameHandler.h"
 #include "net/Log.h"
 #include "net/Server.h"
 
@@ -36,8 +37,9 @@ int main(int argc, char** argv) {
 
     try {
         asio::io_context io;
+        game::GameHandler handler;  // Server 보다 먼저 만들어서 나중에 소멸한다
         net::Server server(io, static_cast<std::uint16_t>(port),
-                           std::chrono::seconds(idleSeconds));
+                           std::chrono::seconds(idleSeconds), handler);
 
         asio::signal_set signals(io, SIGINT, SIGTERM);
         signals.async_wait([&server](std::error_code ec, int /*signal*/) {

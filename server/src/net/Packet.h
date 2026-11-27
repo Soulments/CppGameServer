@@ -11,13 +11,22 @@ namespace net {
 //   | payloadSize u16| type u16  | payload (N bytes)|
 //   +----------------+-----------+------------------+
 //
-// payloadSize 는 헤더를 제외한 payload 길이다. M2 에서 payload 를 protobuf 로 바꾼다.
+// payloadSize 는 헤더를 제외한 payload 길이다.
+// Ping/Pong 의 payload 는 임의 바이트이고, 나머지는 proto/game.proto 의 protobuf 메시지다.
 constexpr std::size_t kHeaderSize = 4;
 constexpr std::size_t kMaxPayloadSize = 4096;
 
+// 값은 docs/protocol.md 와 client-unity/Assets/Scripts/Network/PacketProtocol.cs 와 같아야 한다.
 enum class PacketType : std::uint16_t {
     Ping = 1,  // 클라 -> 서버 (하트비트). payload 는 임의 바이트, Pong 이 그대로 되돌려 준다.
     Pong = 2,  // 서버 -> 클라
+
+    LoginRequest = 3,       // 클라 -> 서버
+    LoginResponse = 4,      // 서버 -> 클라
+    JoinRoomRequest = 5,    // 클라 -> 서버
+    JoinRoomResponse = 6,   // 서버 -> 클라
+    PlayerJoined = 7,       // 서버 -> 같은 방의 다른 클라
+    PlayerLeft = 8,         // 서버 -> 같은 방의 다른 클라
 };
 
 struct PacketHeader {

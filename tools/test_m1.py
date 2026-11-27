@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""M1 통합 테스트: 서버 프로세스를 직접 띄우고 TCP 클라이언트로 동작을 검증한다.
+"""M1 통합 테스트: 서버 프로세스를 직접 띄우고 TCP 클라이언트로 연결 계층 동작을 검증한다.
 
 사용법:
     python3 tools/test_m1.py --server build/cppgameserver
@@ -10,112 +10,25 @@
 
 import argparse
 import os
-import signal
 import socket
 import struct
-import subprocess
 import sys
-import tempfile
 import threading
 import time
 
-PING = 1
-PONG = 2
-MAX_PAYLOAD = 4096
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from testlib import (  # noqa: E402
+    MAX_PAYLOAD,
+    PING,
+    PONG,
+    connect,
+    expect_closed,
+    pack,
+    recv_packet,
+    run_suite,
+)
+
 IDLE_TIMEOUT = 2  # 테스트용으로 짧게 설정한 서버의 유휴 타임아웃(초)
-
-
-def pack(ptype, payload=b""):
-    return struct.pack("<HH", len(payload), ptype) + payload
-
-
-def recv_exact(sock, n, timeout=3.0):
-    sock.settimeout(timeout)
-    data = b""
-    while len(data) < n:
-        chunk = sock.recv(n - len(data))
-        if not chunk:
-            raise ConnectionError("connection closed by server")
-        data += chunk
-    return data
-
-
-def recv_packet(sock, timeout=3.0):
-    size, ptype = struct.unpack("<HH", recv_exact(sock, 4, timeout))
-    return ptype, recv_exact(sock, size, timeout) if size else b""
-
-
-def expect_closed(sock, timeout):
-    """서버가 timeout 안에 연결을 끊으면 걸린 시간을 돌려준다."""
-    start = time.time()
-    sock.settimeout(timeout)
-    try:
-        while True:
-            if sock.recv(4096) == b"":
-                return time.time() - start
-    except ConnectionResetError:
-        return time.time() - start
-    except socket.timeout:
-        raise AssertionError(f"server did not close the connection within {timeout}s")
-
-
-def free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-class ServerProcess:
-    def __init__(self, path, port, idle):
-        self.port = port
-        self.log = tempfile.NamedTemporaryFile(mode="w+", suffix=".log", delete=False)
-        kwargs = {}
-        if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-        self.proc = subprocess.Popen(
-            [path, str(port), str(idle)], stdout=self.log, stderr=subprocess.STDOUT, **kwargs
-        )
-
-    def wait_ready(self, timeout=10):
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            if self.proc.poll() is not None:
-                raise RuntimeError("server exited early:\n" + self.output())
-            try:
-                socket.create_connection(("127.0.0.1", self.port), timeout=0.5).close()
-                return
-            except OSError:
-                time.sleep(0.1)
-        raise RuntimeError("server did not start:\n" + self.output())
-
-    def output(self):
-        self.log.flush()
-        with open(self.log.name, encoding="utf-8", errors="replace") as f:
-            return f.read()
-
-    def stop(self):
-        """정상 종료를 요청하고 (exit code, 로그)를 돌려준다."""
-        if self.proc.poll() is None:
-            if sys.platform == "win32":
-                self.proc.terminate()
-            else:
-                self.proc.send_signal(signal.SIGINT)
-        try:
-            code = self.proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            self.proc.kill()
-            code = self.proc.wait()
-            return -999, self.output()
-        return code, self.output()
-
-
-def connect(port):
-    s = socket.create_connection(("127.0.0.1", port), timeout=3)
-    s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-    return s
-
-
-# --- 테스트 케이스 -------------------------------------------------------------
 
 
 def test_two_clients_hold_connection(port):
@@ -255,41 +168,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--server", required=True, help="서버 실행 파일 경로")
     args = parser.parse_args()
-    if not os.path.exists(args.server):
-        print(f"server binary not found: {args.server}")
-        return 2
-
-    port = free_port()
-    server = ServerProcess(args.server, port, IDLE_TIMEOUT)
-    failed = 0
-    try:
-        server.wait_ready()
-        for test in TESTS:
-            started = time.time()
-            try:
-                test(port)
-                print(f"PASS  {test.__name__} ({time.time() - started:.1f}s)")
-            except Exception as e:  # noqa: BLE001
-                failed += 1
-                print(f"FAIL  {test.__name__}: {e!r}")
-    finally:
-        code, output = server.stop()
-
-    if code not in (0,) and sys.platform != "win32":
-        failed += 1
-        print(f"FAIL  graceful_shutdown: exit code {code}")
-    elif sys.platform != "win32" and "server stopped" not in output:
-        failed += 1
-        print("FAIL  graceful_shutdown: 'server stopped' not logged")
-    elif sys.platform != "win32":
-        print("PASS  graceful_shutdown")
-
-    if failed:
-        print("\n--- server log ---\n" + output)
-        print(f"\n{failed} test(s) failed")
-        return 1
-    print("\nall tests passed")
-    return 0
+    return run_suite(args.server, IDLE_TIMEOUT, TESTS, "M1 connection layer")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,57 @@
+// 서버(C++)와 클라이언트(C#)가 공유하는 패킷 정의.
+// 전송 형식은 docs/protocol.md 참고: [payloadSize u16][type u16][payload = 이 파일의 메시지]
+// 어떤 메시지가 어떤 type 값인지는 docs/protocol.md 와 server/src/net/Packet.h 에 있다.
+syntax = "proto3";
+
+package cppgs;
+
+// C++ 서버는 reflection 이 필요 없어서 lite 런타임을 쓴다. C# 생성기는 이 옵션을 무시한다.
+option optimize_for = LITE_RUNTIME;
+option csharp_namespace = "CppGameServer.Protocol";
+
+enum ResultCode {
+  RESULT_OK = 0;
+  RESULT_INVALID_STATE = 1;       // 지금 상태에서 할 수 없는 요청 (예: 로그인 전 방 입장)
+  RESULT_INVALID_NICKNAME = 2;    // 길이(1~16바이트)나 문자(제어 문자 금지) 규칙 위반
+  RESULT_DUPLICATE_NICKNAME = 3;  // 이미 접속 중인 닉네임
+  RESULT_INVALID_ROOM = 4;        // 방 번호가 1~1000 범위 밖
+  RESULT_ROOM_FULL = 5;           // 방 정원(4명) 초과
+}
+
+message PlayerInfo {
+  uint64 player_id = 1;
+  string nickname = 2;
+}
+
+// type 3, 클라이언트 -> 서버
+message LoginRequest {
+  string nickname = 1;
+}
+
+// type 4, 서버 -> 클라이언트
+message LoginResponse {
+  ResultCode result = 1;
+  PlayerInfo player = 2;  // result 가 RESULT_OK 일 때만 채워진다
+}
+
+// type 5, 클라이언트 -> 서버
+message JoinRoomRequest {
+  uint32 room_id = 1;
+}
+
+// type 6, 서버 -> 클라이언트
+message JoinRoomResponse {
+  ResultCode result = 1;
+  uint32 room_id = 2;
+  repeated PlayerInfo players = 3;  // 입장한 본인을 포함한 방의 전체 인원 (입장 순서)
+}
+
+// type 7, 서버 -> 같은 방의 다른 클라이언트
+message PlayerJoined {
+  PlayerInfo player = 1;
+}
+
+// type 8, 서버 -> 같은 방의 다른 클라이언트
+message PlayerLeft {
+  uint64 player_id = 1;
+}
