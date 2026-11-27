@@ -11,8 +11,16 @@ namespace CppGameServer.Network
         public const int HeaderSize = 4;
         public const int MaxPayloadSize = 4096;
 
+        // 값은 docs/protocol.md 와 server/src/net/Packet.h 와 같아야 한다.
         public const ushort Ping = 1;
         public const ushort Pong = 2;
+
+        public const ushort LoginRequest = 3;
+        public const ushort LoginResponse = 4;
+        public const ushort JoinRoomRequest = 5;
+        public const ushort JoinRoomResponse = 6;
+        public const ushort PlayerJoined = 7;
+        public const ushort PlayerLeft = 8;
 
         public static byte[] Encode(ushort type, byte[] payload)
         {
