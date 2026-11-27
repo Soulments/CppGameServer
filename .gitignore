@@ -33,3 +33,7 @@ Thumbs.db
 # Python
 __pycache__/
 *.pyc
+
+# .NET (tools/client-tests)
+tools/client-tests/bin/
+tools/client-tests/obj/
