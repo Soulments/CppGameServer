@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build server
+        run: |
+          cmake -S server -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+
+      - name: Integration test (M1)
+        run: python3 tools/test_m1.py --server build/cppgameserver
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build server (MSVC)
+        run: |
+          cmake -S server -B build
+          cmake --build build --config Release
+
+      - name: Integration test (M1)
+        run: python tools/test_m1.py --server build/Release/cppgameserver.exe
+
+      - name: Build IOCP echo sample (MSVC)
+        run: |
+          cmake -S samples/iocp-echo -B build-iocp
+          cmake --build build-iocp --config Release
+
+      - name: IOCP echo sample test
+        run: python samples/iocp-echo/test_echo.py --exe build-iocp/Release/iocp_echo.exe

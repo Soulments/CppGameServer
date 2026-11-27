@@ -4,7 +4,7 @@ C++ authoritative game server with Unity client (movement sync, server-side skil
 
 C++ 서버 권위(server-authoritative) 구조의 게임 서버와 Unity 클라이언트입니다. 클라이언트를 신뢰하지 않고 서버가 이동과 스킬 결과를 판정하는 구조를 직접 구현해 보는 프로젝트입니다.
 
-> 상태: 초기 세팅 (M1 시작 전)
+> 상태: M1 진행 중. 서버와 테스트는 구현·검증했고, Unity 프로젝트에서의 실제 접속 확인이 남아 있습니다.
 
 ## 목표
 
@@ -31,11 +31,14 @@ C++ 서버 권위(server-authoritative) 구조의 게임 서버와 Unity 클라�
 
 ## 기술 결정 (진행 중)
 
-- [ ] 비동기 IO: Boost.Asio vs Windows IOCP 직접 구현
-- [ ] 직렬화: protobuf vs FlatBuffers
-- [ ] 클라: 전용 샌드박스 씬 (필요한 코드만 이식)
+- [x] 비동기 IO: **standalone Asio** (메인 서버). IOCP는 학습용 샘플(`samples/iocp-echo`)로 별도 구현해 비교
+  - Asio는 Windows에서 IOCP, Linux에서 epoll로 동작해서 같은 코드로 두 OS를 지원합니다.
+  - `io_context` 1개와 스레드 1개로 시작하고, 필요해지면(M5) 스레드와 strand를 추가합니다.
+  - 콜백(Proactor) 방식을 사용합니다. C++17로 충분하고 컴파일러 버전에 덜 민감합니다.
+- [ ] 직렬화: protobuf vs FlatBuffers (M2)
+- [x] 클라: 전용 샌드박스 씬 (필요한 코드만 이식)
 
-결정되면 이 목록과 `docs/`에 이유를 기록합니다.
+결정 이유는 `docs/`에 이어서 기록합니다.
 
 ## 폴더 구조
 
@@ -43,16 +46,41 @@ C++ 서버 권위(server-authoritative) 구조의 게임 서버와 Unity 클라�
 server/          C++ 서버 (CMake)
 proto/           패킷 정의(.proto) 원본
 client-unity/    Unity 샌드박스 클라이언트
+samples/         학습용 독립 샘플 (iocp-echo: Windows IOCP 에코 서버)
 docs/            패킷 정의서, 아키텍처, 트러블슈팅 로그
 tools/           지연·패킷 손실 시뮬레이션 등 보조 도구
 ```
 
-## 빌드 (서버)
+## 빌드와 실행 (서버)
+
+C++17 컴파일러와 CMake 3.20 이상이 필요합니다. Asio는 CMake 설정 단계에서 GitHub에서 자동으로 받습니다.
 
 ```bash
 cmake -S server -B build
-cmake --build build
-./build/cppgameserver
+cmake --build build --config Release
+./build/cppgameserver [port] [idleTimeoutSeconds]    # 기본: 7777, 10초
 ```
 
-현재는 빌드 확인용 placeholder 입니다.
+Windows(Visual Studio)에서는 실행 파일이 `build/Release/cppgameserver.exe`에 만들어집니다.
+
+## 테스트
+
+서버를 직접 띄우고 TCP 클라이언트로 검증하는 통합 테스트입니다 (Python 3 필요).
+
+```bash
+python3 tools/test_m1.py --server build/cppgameserver
+```
+
+검증 항목: 클라이언트 2개의 동시 접속 유지(하트비트), 유휴 연결 종료, 잘못된 패킷 거부,
+쪼개져 오거나 붙어서 오는 패킷 처리, 비정상 종료 후 복구, 50개 동시 접속, 정상 종료.
+Linux와 Windows(MSVC)에서 GitHub Actions로 자동 실행합니다.
+
+## Unity 클라이언트
+
+`client-unity/Assets/Scripts/Network/`에 접속 코드가 있습니다.
+`GameClient`는 Unity API에 의존하지 않는 순수 C#이고, `GameNetworkManager`를 씬의 빈 GameObject에 붙이면 접속과 하트비트를 시작합니다.
+Unity 프로젝트 파일(`ProjectSettings/`, `Packages/`)은 아직 없습니다. Unity Hub로 임시 위치에 새 프로젝트를 만든 뒤
+`ProjectSettings/`와 `Packages/`를 `client-unity/`로 복사하고, Unity Hub의 "Add project from disk"로 `client-unity/`를 열면 됩니다.
+접속 확인은 서버를 먼저 실행한 뒤 플레이하고, 클라이언트 2개는 에디터와 빌드를 함께 실행해서 확인합니다.
+
+패킷 형식은 [docs/protocol.md](docs/protocol.md)를 참고하세요.
