@@ -6,8 +6,9 @@
 
 namespace net {
 
-Server::Server(asio::io_context& io, std::uint16_t port, std::chrono::seconds idleTimeout)
-    : io_(io), acceptor_(io), idleTimeout_(idleTimeout) {
+Server::Server(asio::io_context& io, std::uint16_t port, std::chrono::seconds idleTimeout,
+               PacketHandler& handler)
+    : io_(io), acceptor_(io), idleTimeout_(idleTimeout), handler_(handler) {
     const asio::ip::tcp::endpoint endpoint(asio::ip::tcp::v4(), port);
     acceptor_.open(endpoint.protocol());
 #ifndef _WIN32
@@ -46,7 +47,7 @@ void Server::Accept() {
 
             const std::uint64_t id = nextSessionId_++;
             auto session = std::make_shared<Session>(
-                std::move(socket), id, idleTimeout_,
+                std::move(socket), id, idleTimeout_, handler_,
                 [this](std::uint64_t closedId) { OnSessionClosed(closedId); });
             sessions_.emplace(id, session);
             Log("[session %llu] connected (sessions=%zu)", static_cast<unsigned long long>(id),

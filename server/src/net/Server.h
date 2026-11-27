@@ -7,14 +7,16 @@
 
 #include <asio.hpp>
 
+#include "net/PacketHandler.h"
 #include "net/Session.h"
 
 namespace net {
 
-// 접속을 받고 세션을 관리한다.
+// 접속을 받고 세션을 관리한다. 게임 패킷 처리는 handler 에 맡긴다.
 class Server {
 public:
-    Server(asio::io_context& io, std::uint16_t port, std::chrono::seconds idleTimeout);
+    Server(asio::io_context& io, std::uint16_t port, std::chrono::seconds idleTimeout,
+           PacketHandler& handler);
 
     void Start();
     void Stop();  // 새 접속을 막고 모든 세션을 닫는다.
@@ -28,6 +30,7 @@ private:
     asio::io_context& io_;
     asio::ip::tcp::acceptor acceptor_;
     std::chrono::seconds idleTimeout_;
+    PacketHandler& handler_;
     std::uint64_t nextSessionId_ = 1;
     std::unordered_map<std::uint64_t, std::shared_ptr<Session>> sessions_;
 };

@@ -3,6 +3,8 @@
 #include <cstring>
 #include <utility>
 
+#include <google/protobuf/message_lite.h>
+
 #include "net/Log.h"
 
 namespace net {
@@ -13,11 +15,12 @@ constexpr std::size_t kMaxQueuedPackets = 1024;
 }  // namespace
 
 Session::Session(asio::ip::tcp::socket socket, std::uint64_t id,
-                 std::chrono::seconds idleTimeout, CloseCallback onClose)
+                 std::chrono::seconds idleTimeout, PacketHandler& handler, CloseCallback onClose)
     : socket_(std::move(socket)),
       idleTimer_(socket_.get_executor()),
       id_(id),
       idleTimeout_(idleTimeout),
+      handler_(handler),
       onClose_(std::move(onClose)) {
     std::error_code ec;
     const auto endpoint = socket_.remote_endpoint(ec);
@@ -44,6 +47,7 @@ void Session::Close(const char* reason) {
     // 취소가 완료되기 전에 해제하면 안 된다 (특히 IOCP). 핸들러가 self 를 잡고 있으므로
     // 모든 비동기 작업이 끝난 뒤 세션이 소멸될 때 함께 해제된다.
 
+    handler_.OnSessionClosed(*this);  // 방 퇴장, 닉네임 해제 등 게임 상태 정리
     if (onClose_) onClose_(id_);
 }
 
@@ -89,15 +93,35 @@ void Session::HandlePacket() {
 
     switch (static_cast<PacketType>(header_.type)) {
         case PacketType::Ping:
+            // 연결 계층이 직접 처리한다 (게임 로직과 무관).
             Send(PacketType::Pong, payload_.data(), payload_.size());
             break;
         default:
-            // M1 에서는 모르는 패킷 타입을 보내는 클라이언트를 바로 끊는다.
-            Close("unknown packet type");
-            return;
+            // 나머지는 게임 로직에 넘기고, 잘못된 패킷이면 연결을 끊는다.
+            if (!handler_.OnPacket(*this, header_.type, payload_.data(), payload_.size())) {
+                Close("rejected packet");
+                return;
+            }
+            break;
     }
 
     if (!closed_) ReadHeader();
+}
+
+void Session::SendMessage(PacketType type, const google::protobuf::MessageLite& message) {
+    const std::size_t size = message.ByteSizeLong();
+    if (size > kMaxPayloadSize) {
+        Log("[session %llu] message too large to send (%zu bytes)",
+            static_cast<unsigned long long>(id_), size);
+        return;
+    }
+
+    std::vector<std::uint8_t> payload(size);
+    if (size > 0 && !message.SerializeToArray(payload.data(), static_cast<int>(size))) {
+        Log("[session %llu] failed to serialize message", static_cast<unsigned long long>(id_));
+        return;
+    }
+    Send(type, payload.data(), size);
 }
 
 void Session::Send(PacketType type, const std::uint8_t* data, std::size_t size) {
