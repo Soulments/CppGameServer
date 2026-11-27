@@ -14,10 +14,18 @@ jobs:
       - name: Build server
         run: |
           cmake -S server -B build -DCMAKE_BUILD_TYPE=Release
-          cmake --build build
+          cmake --build build --parallel
 
-      - name: Integration test (M1)
+      - name: Integration test (M1 connection layer)
         run: python3 tools/test_m1.py --server build/cppgameserver
+
+      - name: Integration test (M2 protocol)
+        run: python3 tools/test_m2.py --server build/cppgameserver
+
+      - name: Generated C# is up to date
+        run: |
+          cmake --build build --target gen_proto_csharp
+          git diff --exit-code -- client-unity/Assets/Scripts/Generated
 
   windows:
     runs-on: windows-latest
@@ -27,10 +35,13 @@ jobs:
       - name: Build server (MSVC)
         run: |
           cmake -S server -B build
-          cmake --build build --config Release
+          cmake --build build --config Release --parallel
 
-      - name: Integration test (M1)
+      - name: Integration test (M1 connection layer)
         run: python tools/test_m1.py --server build/Release/cppgameserver.exe
+
+      - name: Integration test (M2 protocol)
+        run: python tools/test_m2.py --server build/Release/cppgameserver.exe
 
       - name: Build IOCP echo sample (MSVC)
         run: |

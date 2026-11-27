@@ -4,7 +4,7 @@ Windows IOCP(I/O Completion Port)의 동작을 직접 확인해 보는 학습용
 메인 서버(`server/`)는 Asio를 사용하며, 이 샘플은 Asio가 Windows에서 내부적으로 감싸는
 IOCP 모델을 이해하기 위해 따로 만들었습니다. `server/`의 코드와는 독립적입니다.
 
-> 상태: Windows 실행 검증 전
+> 상태: GitHub Actions(windows-latest, MSVC)에서 빌드와 `test_echo.py` 통과
 
 ## 구조
 
