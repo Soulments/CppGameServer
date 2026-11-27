@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Unity 에디터 없이 클라이언트 로직을 검증하는 프로젝트. 실행 방법은 tools/client-tests/README.md 참고.
+
+    client-unity/Assets/Scripts 의 소스를 그대로 컴파일한다 (복사하지 않는다).
+    Unity 에 의존하는 스크립트(GameNetworkManager, SyncDemoController)는 UnityStubs.cs 와 함께 컴파일만 한다.
+    문법과 타입 오류는 잡지만 Unity 에서의 실제 동작은 검증하지 않는다.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <NoWarn>1591;0612;3021;8981</NoWarn>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- 레거시 Input Manager 분기(SyncDemoController)도 컴파일되게 한다 -->
+    <DefineConstants>$(DefineConstants);ENABLE_LEGACY_INPUT_MANAGER</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../client-unity/Assets/Scripts/**/*.cs" />
+    <Compile Include="*.cs" />
+    <Reference Include="Google.Protobuf">
+      <HintPath>../../client-unity/Assets/Plugins/Google.Protobuf/Google.Protobuf.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>

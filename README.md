@@ -10,7 +10,7 @@ C++ 서버 권위(server-authoritative) 구조의 게임 서버와 Unity 클라�
 | --- | --- |
 | M1 접속 기반 | 서버와 테스트 완료 (Linux/Windows CI 통과). **Unity 에디터에서의 실제 접속 확인이 남음** |
 | M2 프로토콜 | 서버, 패킷 정의서, 테스트 완료. C# 클라이언트는 .NET에서 서버와의 통신을 확인함. **Unity 에디터 확인이 남음** |
-| M3 동기화 | 서버 시뮬레이션(20Hz 틱, 입력 기반 이동, 방별 스냅샷) 구현·테스트 완료. 클라이언트 보간과 예측은 예정 |
+| M3 동기화 | 서버 시뮬레이션(20Hz 틱, 입력 기반 이동, 방별 스냅샷)과 클라이언트 보간(`SnapshotInterpolator`), 입력 전송, 데모 컴포넌트 구현·테스트 완료. 클라이언트 예측과 Unity 에디터 확인은 예정 |
 | M4 스킬 검증 | 예정 |
 | M5 마무리 | 예정 |
 
@@ -78,11 +78,13 @@ Windows(Visual Studio)에서는 실행 파일이 `build/Release/cppgameserver.ex
 python3 tools/test_m1.py --server build/cppgameserver    # 연결 계층
 python3 tools/test_m2.py --server build/cppgameserver    # 로그인, 방, 잘못된 패킷
 python3 tools/test_m3.py --server build/cppgameserver    # 틱, 이동 입력, 스냅샷
+dotnet run --project tools/client-tests -c Release -- unit    # 클라이언트 보간기, 입력 전송 (.NET 8, Unity 불필요)
 ctest --test-dir build --output-on-failure               # 이동 계산 단위 테스트 (Windows는 -C Release 추가)
 ```
 
 - M1: 클라이언트 2개의 동시 접속 유지(하트비트), 유휴 연결 종료, 크기 제한, 쪼개져 오거나 붙어서 오는 패킷, 비정상 종료 후 복구, 50개 동시 접속, 정상 종료
 - M2: 로그인과 닉네임 규칙·중복, 방 입장/퇴장과 알림, 정원 초과, 방 격리, 잘못된 protobuf·잘못된 방향의 패킷 처리, 강제 종료 후 상태 정리
+- 클라이언트(`tools/client-tests`): 보간기의 정확도(등속 이동을 오차 2ms 미만으로 재현), 도착 지터, 정체 후 복구, 지연 변화, 입장·퇴장, 입력 전송 규칙, 실제 서버와의 end-to-end. Unity에 의존하는 스크립트는 스텁으로 컴파일만 확인
 - M3: 스냅샷 주기(20Hz), 한 틱 이동량 0.25, 속도 제한(방향 벡터를 부풀려도 속도 불변), 아레나 경계, 오래된·중복·NaN 입력 무시, 스폰 슬롯, 방 격리, 입력 폭주 차단, 5개 방 20명 동시 이동
 
 Linux와 Windows(MSVC)에서 GitHub Actions로 자동 실행합니다.
@@ -93,6 +95,9 @@ Linux와 Windows(MSVC)에서 GitHub Actions로 자동 실행합니다.
 
 - `GameClient`: 접속, 수신, 하트비트. Unity API에 의존하지 않는 순수 C#
 - `LobbyClient`: 로그인, 방 입장, 이동 입력 전송(`SendMoveInput`), 월드 스냅샷 수신(`SnapshotReceived`) (`GameClient` 위에서 동작)
+- `Sync/SnapshotInterpolator`: 스냅샷 보간(100ms 지연, 끊기면 최대 250ms 외삽), 서버 시각 추정. 순수 C#
+- `Sync/MoveInputSender`: 입력이 바뀔 때만 전송, 실패 시 재시도. 순수 C#
+- `Sync/SyncDemoController`: `GameNetworkManager`와 같은 GameObject에 붙이면 WASD 입력을 보내고 플레이어마다 큐브를 보간해서 움직임 (씬 없이 동작. 위에서 내려다보는 카메라가 필요)
 - `GameNetworkManager`: 씬의 빈 GameObject에 붙이면 접속, 로그인, 방 입장을 자동으로 진행
 
 `Assets/Plugins/Google.Protobuf/`에 protobuf C# 런타임 DLL이 들어 있고, `Assets/Scripts/Generated/Game.cs`는 `proto/game.proto`에서 생성한 코드입니다

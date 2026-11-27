@@ -17,6 +17,11 @@ namespace CppGameServer.Network
 
         private GameClient _client;
         private LobbyClient _lobby;
+
+        /// <summary>Start() 에서 만들어진다 (그 전에는 null). 다른 컴포넌트가 스냅샷 수신이나 입력 전송에 쓴다.</summary>
+        public GameClient Client { get { return _client; } }
+        public LobbyClient Lobby { get { return _lobby; } }
+
         private string _nickname;
         private string _status = "connecting...";
         private string _roomInfo = "";

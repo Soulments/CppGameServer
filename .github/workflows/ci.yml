@@ -33,6 +33,28 @@ jobs:
           cmake --build build --target gen_proto_csharp
           git diff --exit-code -- client-unity/Assets/Scripts/Generated
 
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build client logic tests (.NET)
+        run: dotnet build tools/client-tests -c Release
+
+      - name: Client logic (unit)
+        run: dotnet tools/client-tests/bin/Release/net8.0/ClientTests.dll unit
+
+      - name: Client logic (end-to-end with the server)
+        run: |
+          set +e
+          ./build/cppgameserver 17900 10 &
+          SERVER=$!
+          sleep 1
+          dotnet tools/client-tests/bin/Release/net8.0/ClientTests.dll e2e 17900
+          STATUS=$?
+          kill -INT $SERVER
+          wait $SERVER
+          exit $STATUS
+
   windows:
     runs-on: windows-latest
     steps:
