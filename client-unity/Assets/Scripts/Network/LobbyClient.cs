@@ -26,6 +26,9 @@ namespace CppGameServer.Network
         /// <summary>같은 방의 다른 플레이어가 나갔다 (player_id).</summary>
         public event Action<ulong> OtherPlayerLeft;
 
+        /// <summary>방에 있는 동안 서버 틱(20Hz)마다 오는 월드 스냅샷. 보간과 예측 보정은 이 이벤트를 받아서 처리한다.</summary>
+        public event Action<WorldSnapshot> SnapshotReceived;
+
         public LobbyClient(GameClient client)
         {
             if (client == null) throw new ArgumentNullException("client");
@@ -43,6 +46,16 @@ namespace CppGameServer.Network
         {
             var request = new JoinRoomRequest { RoomId = roomId };
             return _client.Send(PacketProtocol.JoinRoomRequest, request.ToByteArray());
+        }
+
+        /// <summary>
+        /// 이동 입력을 보낸다. seq 는 1부터 늘려 가는 번호이고, 서버는 이전 값보다 작거나 같은 번호를 버린다.
+        /// 방향은 서버가 크기를 1 이하로 제한한다. 위치가 아니라 입력을 보내는 것이 서버 권위 구조의 핵심이다.
+        /// </summary>
+        public bool SendMoveInput(uint seq, float dirX, float dirZ)
+        {
+            var input = new MoveInput { Seq = seq, DirX = dirX, DirZ = dirZ };
+            return _client.Send(PacketProtocol.MoveInput, input.ToByteArray());
         }
 
         private void OnPacket(ushort type, byte[] payload)
@@ -77,6 +90,13 @@ namespace CppGameServer.Network
                         var message = PlayerLeft.Parser.ParseFrom(payload);
                         var handler = OtherPlayerLeft;
                         if (handler != null) handler(message.PlayerId);
+                        break;
+                    }
+                    case PacketProtocol.WorldSnapshot:
+                    {
+                        var snapshot = WorldSnapshot.Parser.ParseFrom(payload);
+                        var handler = SnapshotReceived;
+                        if (handler != null) handler(snapshot);
                         break;
                     }
                     case PacketProtocol.Pong:

@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import weakref
 
 # --- 패킷 (docs/protocol.md) ---------------------------------------------------
 
@@ -22,8 +23,17 @@ JOIN_ROOM_REQUEST = 5
 JOIN_ROOM_RESPONSE = 6
 PLAYER_JOINED = 7
 PLAYER_LEFT = 8
+MOVE_INPUT = 9
+WORLD_SNAPSHOT = 10
 
 MAX_PAYLOAD = 4096
+
+# 서버 시뮬레이션 상수 (server/src/game/Simulation.h 와 같아야 한다)
+TICK_RATE = 20
+TICK_SECONDS = 1.0 / TICK_RATE
+MOVE_SPEED = 5.0
+ARENA_HALF_SIZE = 20.0
+STEP = MOVE_SPEED * TICK_SECONDS  # 한 틱 이동 거리 0.25
 
 RESULT_OK = 0
 RESULT_INVALID_STATE = 1
@@ -54,27 +64,40 @@ def recv_packet(sock, timeout=3.0):
 
 
 def expect_closed(sock, timeout):
-    """서버가 timeout 안에 연결을 끊으면 걸린 시간을 돌려준다."""
+    """서버가 timeout 안에 연결을 끊으면 걸린 시간을 돌려준다.
+
+    timeout 은 전체 제한 시간이다. 서버가 데이터를 계속 보내는 소켓(방 안의 스냅샷)에서도
+    제한 시간이 지나면 실패해야 해서, 수신 한 번마다가 아니라 마감 시각으로 센다.
+    """
     start = time.time()
-    sock.settimeout(timeout)
-    try:
-        while True:
+    deadline = start + timeout
+    while True:
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            raise AssertionError(f"server did not close the connection within {timeout}s")
+        sock.settimeout(remaining)
+        try:
             if sock.recv(4096) == b"":
                 return time.time() - start
-    except ConnectionResetError:
-        return time.time() - start
-    except socket.timeout:
-        raise AssertionError(f"server did not close the connection within {timeout}s")
+        except ConnectionResetError:
+            return time.time() - start
+        except socket.timeout:
+            raise AssertionError(f"server did not close the connection within {timeout}s")
 
 
-def expect_no_packet(sock, wait=0.4):
-    """wait 동안 서버가 아무것도 보내지 않아야 한다."""
-    sock.settimeout(wait)
-    try:
-        data = sock.recv(4096)
-    except socket.timeout:
-        return
-    raise AssertionError(f"unexpected data from server: {data!r}")
+def expect_no_packet(sock, wait=0.4, ignore=()):
+    """wait 동안 서버가 ignore 에 든 타입 외에는 아무것도 보내지 않아야 한다.
+
+    방에 입장한 소켓은 매 틱 스냅샷이 오므로 ignore=(WORLD_SNAPSHOT,) 를 넘긴다.
+    """
+    stream = stream_for(sock)
+    deadline = time.time() + wait
+    while True:
+        packet = stream.read_packet(max(0.0, deadline - time.time()))
+        if packet is None:
+            return
+        if packet[0] not in ignore:
+            raise AssertionError(f"unexpected packet from server: type={packet[0]} payload={packet[1]!r}")
 
 
 def connect(port):
@@ -117,6 +140,13 @@ def field_string(number, text):
     return field_bytes(number, text if isinstance(text, bytes) else text.encode("utf-8"))
 
 
+def field_float(number, value):
+    """float(32비트) 필드. 값이 0.0 이면 proto3 규칙대로 생략한다 (NaN 은 0 이 아니므로 포함)."""
+    if value == 0.0:
+        return b""
+    return varint((number << 3) | 5) + struct.pack("<f", value)
+
+
 def decode_message(data):
     """{필드 번호: [값, ...]} 로 디코딩한다. varint 는 int, 길이 지정 필드는 bytes."""
     fields = {}
@@ -155,6 +185,10 @@ def decode_message(data):
             value = data[i : i + length]
             assert len(value) == length, "truncated field"
             i += length
+        elif wire == 5:  # 32비트 고정 길이 (float, fixed32). 원본 4바이트를 돌려준다
+            value = data[i : i + 4]
+            assert len(value) == 4, "truncated fixed32"
+            i += 4
         else:
             raise ValueError(f"unsupported wire type {wire}")
         fields.setdefault(number, []).append(value)
@@ -163,6 +197,10 @@ def decode_message(data):
 
 def get_varint(fields, number):
     return fields.get(number, [0])[-1]
+
+
+def get_float(fields, number):
+    return struct.unpack("<f", fields[number][-1])[0] if number in fields else 0.0
 
 
 # --- 메시지 (proto/game.proto) --------------------------------------------------
@@ -200,6 +238,84 @@ def parse_player_joined(payload):
 
 def parse_player_left(payload):
     return get_varint(decode_message(payload), 1)
+
+
+def move_input(seq, dir_x, dir_z):
+    return pack(MOVE_INPUT, field_varint(1, seq) + field_float(2, dir_x) + field_float(3, dir_z))
+
+
+def parse_snapshot(payload):
+    """WorldSnapshot 을 (tick, [{id, x, z, seq}, ...]) 로 해석한다."""
+    f = decode_message(payload)
+    players = []
+    for raw in f.get(2, []):
+        pf = decode_message(raw)
+        players.append(
+            {
+                "id": get_varint(pf, 1),
+                "x": get_float(pf, 2),
+                "z": get_float(pf, 3),
+                "seq": get_varint(pf, 4),
+            }
+        )
+    return get_varint(f, 1), players
+
+
+class Stream:
+    """소켓에서 패킷을 하나씩 읽는다. 시간 제한으로 중간에 끊겨도 받은 바이트를 보관해서 스트림이 깨지지 않는다."""
+
+    def __init__(self, sock):
+        self.sock = sock
+        self.buf = b""
+
+    def read_packet(self, timeout):
+        """timeout 초 안에 완성된 패킷이 오면 (type, payload), 아니면 None. 연결이 끊기면 ConnectionError."""
+        deadline = time.time() + timeout
+        while True:
+            if len(self.buf) >= 4:
+                size, ptype = struct.unpack("<HH", self.buf[:4])
+                if len(self.buf) >= 4 + size:
+                    payload = self.buf[4 : 4 + size]
+                    self.buf = self.buf[4 + size :]
+                    return ptype, payload
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return None
+            self.sock.settimeout(remaining)
+            try:
+                chunk = self.sock.recv(65536)
+            except socket.timeout:
+                return None
+            if not chunk:
+                raise ConnectionError("connection closed by server")
+            self.buf += chunk
+
+
+_streams = weakref.WeakKeyDictionary()
+
+
+def stream_for(sock):
+    """소켓마다 Stream 을 하나만 유지한다 (버퍼에 남은 패킷을 잃지 않으려면 같은 객체로 계속 읽어야 한다)."""
+    stream = _streams.get(sock)
+    if stream is None:
+        stream = Stream(sock)
+        _streams[sock] = stream
+    return stream
+
+
+def recv_skipping(sock_or_stream, skip=(WORLD_SNAPSHOT,), timeout=3.0):
+    """skip 에 든 타입(기본: 틱마다 오는 스냅샷)을 건너뛰고 다음 패킷을 돌려준다.
+
+    방에 입장한 소켓에서 응답/알림을 읽을 때 쓴다. 같은 소켓은 이 함수(또는 stream_for)로만 읽어야 한다.
+    """
+    stream = sock_or_stream if isinstance(sock_or_stream, Stream) else stream_for(sock_or_stream)
+    deadline = time.time() + timeout
+    while True:
+        packet = stream.read_packet(max(0.0, deadline - time.time()))
+        if packet is None:
+            raise socket.timeout("no packet within %.1fs" % timeout)
+        if packet[0] not in skip:
+            return packet
 
 
 def login(sock, nickname):

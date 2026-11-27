@@ -78,18 +78,31 @@ add_custom_target(
     VERBATIM
 )
 
+# --- 이동 시뮬레이션 (외부 의존성 없는 순수 계산, 단위 테스트 대상) --------------
+add_library(simulation STATIC src/game/Simulation.cpp)
+target_include_directories(simulation PUBLIC src)
+
 # --- server --------------------------------------------------------------------
 add_executable(cppgameserver
     src/main.cpp
     src/net/Server.cpp
     src/net/Session.cpp
     src/game/GameHandler.cpp
+    src/game/GameLoop.cpp
 )
 target_include_directories(cppgameserver PRIVATE src)
-target_link_libraries(cppgameserver PRIVATE asio_headers game_proto)
+target_link_libraries(cppgameserver PRIVATE asio_headers game_proto simulation)
 
-if(MSVC)
-    target_compile_options(cppgameserver PRIVATE /W4 /permissive- /utf-8)
-else()
-    target_compile_options(cppgameserver PRIVATE -Wall -Wextra -pedantic)
-endif()
+# --- 단위 테스트: ctest --test-dir build -C Release --output-on-failure ----------
+enable_testing()
+add_executable(simulation_test tests/simulation_test.cpp)
+target_link_libraries(simulation_test PRIVATE simulation)
+add_test(NAME simulation_test COMMAND simulation_test)
+
+foreach(target cppgameserver simulation simulation_test)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -pedantic)
+    endif()
+endforeach()

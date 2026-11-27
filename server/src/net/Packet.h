@@ -27,6 +27,9 @@ enum class PacketType : std::uint16_t {
     JoinRoomResponse = 6,   // 서버 -> 클라
     PlayerJoined = 7,       // 서버 -> 같은 방의 다른 클라
     PlayerLeft = 8,         // 서버 -> 같은 방의 다른 클라
+
+    MoveInput = 9,          // 클라 -> 서버 (이동 입력)
+    WorldSnapshot = 10,     // 서버 -> 같은 방의 모든 클라 (매 틱)
 };
 
 struct PacketHeader {
