@@ -19,8 +19,14 @@ jobs:
       - name: Integration test (M1 connection layer)
         run: python3 tools/test_m1.py --server build/cppgameserver
 
+      - name: Unit test (simulation)
+        run: ctest --test-dir build --output-on-failure
+
       - name: Integration test (M2 protocol)
         run: python3 tools/test_m2.py --server build/cppgameserver
+
+      - name: Integration test (M3 movement)
+        run: python3 tools/test_m3.py --server build/cppgameserver
 
       - name: Generated C# is up to date
         run: |
@@ -40,8 +46,14 @@ jobs:
       - name: Integration test (M1 connection layer)
         run: python tools/test_m1.py --server build/Release/cppgameserver.exe
 
+      - name: Unit test (simulation)
+        run: ctest --test-dir build -C Release --output-on-failure
+
       - name: Integration test (M2 protocol)
         run: python tools/test_m2.py --server build/Release/cppgameserver.exe
+
+      - name: Integration test (M3 movement)
+        run: python tools/test_m3.py --server build/Release/cppgameserver.exe
 
       - name: Build IOCP echo sample (MSVC)
         run: |

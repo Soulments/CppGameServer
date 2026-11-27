@@ -26,6 +26,7 @@ from testlib import (  # noqa: E402
     PLAYER_JOINED,
     PLAYER_LEFT,
     PONG,
+    WORLD_SNAPSHOT,
     RESULT_DUPLICATE_NICKNAME,
     RESULT_INVALID_NICKNAME,
     RESULT_INVALID_ROOM,
@@ -46,6 +47,7 @@ from testlib import (  # noqa: E402
     parse_player_joined,
     parse_player_left,
     recv_packet,
+    recv_skipping,
     run_suite,
     JOIN_ROOM_REQUEST,
 )
@@ -179,11 +181,11 @@ def test_join_room_flow_with_notifications(port):
         assert (result, room_id) == (RESULT_OK, room)
         assert players == [pa, pb], players  # 본인 포함, 입장 순서
 
-        ptype, payload = recv_packet(a)  # A 는 B 의 입장을 통지받는다
+        ptype, payload = recv_skipping(a)  # A 는 B 의 입장을 통지받는다 (틱마다 오는 스냅샷은 건너뜀)
         assert ptype == PLAYER_JOINED and parse_player_joined(payload) == pb
 
         b.close()  # B 가 나가면 A 가 퇴장을 통지받는다
-        ptype, payload = recv_packet(a)
+        ptype, payload = recv_skipping(a)
         assert ptype == PLAYER_LEFT and parse_player_left(payload) == pb[0]
     finally:
         close_all(a, b)
@@ -239,9 +241,10 @@ def test_rooms_are_isolated(port):
         assert join_room(b, 31)[0] == RESULT_OK
         assert join_room(c, 31)[0] == RESULT_OK
 
-        ptype, payload = recv_packet(b)  # 같은 방의 B 는 통지를 받고
+        ptype, payload = recv_skipping(b)  # 같은 방의 B 는 통지를 받고
         assert ptype == PLAYER_JOINED and parse_player_joined(payload) == pc
-        expect_no_packet(a)  # 다른 방의 A 는 아무것도 받지 않는다
+        # 다른 방의 A 는 (자기 방 스냅샷 외에는) 아무것도 받지 않는다
+        expect_no_packet(a, ignore=(WORLD_SNAPSHOT,))
     finally:
         close_all(a, b, c)
 
@@ -323,11 +326,11 @@ def test_pipelined_requests_answered_in_order(port):
     try:
         # 로그인과 방 입장과 Ping 을 한 번에 보낸다 (TCP 에서 한 덩어리로 도착할 수 있다)
         s.sendall(login_request(uniq("pipe")) + join_room_request(51) + pack(PING, b"z"))
-        ptype, payload = recv_packet(s)
+        ptype, payload = recv_skipping(s)
         assert ptype == LOGIN_RESPONSE and parse_login_response(payload)[0] == RESULT_OK
-        ptype, payload = recv_packet(s)
+        ptype, payload = recv_skipping(s)
         assert ptype == JOIN_ROOM_RESPONSE and parse_join_room_response(payload)[0] == RESULT_OK
-        assert recv_packet(s) == (PONG, b"z")
+        assert recv_skipping(s) == (PONG, b"z")  # 사이에 스냅샷이 끼어들 수 있다
     finally:
         s.close()
 
@@ -363,7 +366,7 @@ def test_invalid_utf8_nickname_disconnects(port):
 
 
 def test_server_to_client_types_are_rejected(port):
-    for ptype in (PONG, LOGIN_RESPONSE, JOIN_ROOM_RESPONSE, PLAYER_JOINED, PLAYER_LEFT, 99):
+    for ptype in (PONG, LOGIN_RESPONSE, JOIN_ROOM_RESPONSE, PLAYER_JOINED, PLAYER_LEFT, WORLD_SNAPSHOT, 99):
         s = connect(port)
         try:
             s.sendall(pack(ptype, b""))
@@ -384,13 +387,13 @@ def test_forced_disconnect_cleans_up_state(port):
         assert result == RESULT_OK
         pb = players[-1]
         assert join_room(a, room)[0] == RESULT_OK
-        ptype, payload = recv_packet(b)  # B 는 A 의 입장을 통지받는다
+        ptype, payload = recv_skipping(b)  # B 는 A 의 입장을 통지받는다
         assert ptype == PLAYER_JOINED
 
         b.sendall(pack(LOGIN_REQUEST, b"\xff\xff"))  # 잘못된 패킷
         expect_closed(b, 2)
 
-        ptype, payload = recv_packet(a)  # A 는 B 의 퇴장을 통지받고
+        ptype, payload = recv_skipping(a)  # A 는 B 의 퇴장을 통지받고
         assert ptype == PLAYER_LEFT and parse_player_left(payload) == pb[0]
 
         c = connect(port)  # 닉네임도 다시 쓸 수 있다

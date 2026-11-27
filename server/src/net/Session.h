@@ -28,6 +28,16 @@ struct PlayerState {
     std::uint64_t playerId = 0;
     std::string nickname;
     std::uint32_t roomId = 0;  // 0 = 어느 방에도 없음
+
+    // 이동 시뮬레이션 상태 (GameHandler 가 관리한다)
+    float x = 0.0f;
+    float z = 0.0f;
+    float dirX = 0.0f;  // 마지막으로 받은 유효한 입력 방향 (이미 정규화/제한됨)
+    float dirZ = 0.0f;
+    std::uint32_t lastInputSeq = 0;
+    std::size_t spawnSlot = 0;
+    std::uint32_t inputTick = 0;   // inputsInTick 을 센 틱 번호
+    int inputsInTick = 0;          // 그 틱 동안 받은 MoveInput 수 (폭주 감지)
 };
 
 // 클라이언트 연결 1개. Proactor 방식(async_read / async_write 완료 핸들러)으로 동작한다.

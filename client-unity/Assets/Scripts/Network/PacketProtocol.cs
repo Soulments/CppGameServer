@@ -22,6 +22,9 @@ namespace CppGameServer.Network
         public const ushort PlayerJoined = 7;
         public const ushort PlayerLeft = 8;
 
+        public const ushort MoveInput = 9;
+        public const ushort WorldSnapshot = 10;
+
         public static byte[] Encode(ushort type, byte[] payload)
         {
             int size = payload == null ? 0 : payload.Length;

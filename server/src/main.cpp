@@ -7,6 +7,7 @@
 #include <asio.hpp>
 
 #include "game/GameHandler.h"
+#include "game/GameLoop.h"
 #include "net/Log.h"
 #include "net/Server.h"
 
@@ -41,14 +42,18 @@ int main(int argc, char** argv) {
         net::Server server(io, static_cast<std::uint16_t>(port),
                            std::chrono::seconds(idleSeconds), handler);
 
+        game::GameLoop loop(io, handler);  // 20Hz 틱: 이동 시뮬레이션과 스냅샷 전송
+
         asio::signal_set signals(io, SIGINT, SIGTERM);
-        signals.async_wait([&server](std::error_code ec, int /*signal*/) {
+        signals.async_wait([&server, &loop](std::error_code ec, int /*signal*/) {
             if (ec) return;
             net::Log("shutdown requested");
+            loop.Stop();  // 타이머가 남아 있으면 io.run() 이 끝나지 않는다
             server.Stop();
         });
 
         server.Start();
+        loop.Start();
         io.run();  // 스레드 1개. 모든 완료 핸들러가 이 스레드에서 순차 실행된다.
         net::Log("server stopped");
     } catch (const std::exception& e) {
